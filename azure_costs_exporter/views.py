@@ -4,7 +4,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_l
 from .enterprise_billing_collector import AzureEABillingCollector
 from .allocated_vm_collector import AzureAllocatedVMCollector
 from .reserved_vm_collector import AzureReservedVMCollector
-
+from .enterprise_balance_collector import AzureEABalanceCollector
 
 bp = Blueprint('views', __name__)
 DEFAULT_SCRAPE_TIMEOUT = 10
@@ -16,6 +16,15 @@ def _get_timeout():
     except Exception:
         return current_app.config.get('BILLING_SCRAPE_TIMEOUT', DEFAULT_SCRAPE_TIMEOUT)
 
+def _register_balance_collector(registry):
+    timeout = _get_timeout()
+    collector = AzureEABalanceCollector(
+        current_app.config['BALANCE_METRIC_NAME'],
+        current_app.config['ENROLLMENT_NUMBER'],
+        current_app.config['BILLING_API_ACCESS_KEY'],
+        timeout
+    )
+    registry.register(collector)
 
 def _register_billing_collector(registry):
     timeout = _get_timeout()
@@ -50,6 +59,8 @@ def _register_reserved_vm_collector(registry):
 
 
 def _register_collectors(registry):
+    if 'BALANCE_METRIC_NAME' in current_app.config:
+        _register_balance_collector(registry)
     if 'BILLING_METRIC_NAME' in current_app.config:
         _register_billing_collector(registry)
     if 'ALLOCATED_VM_METRIC_NAME' in current_app.config:
