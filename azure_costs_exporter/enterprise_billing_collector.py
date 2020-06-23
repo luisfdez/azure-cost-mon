@@ -3,9 +3,9 @@ import datetime
 from pandas import DataFrame
 from prometheus_client.core import CounterMetricFamily
 
-base_columns = ['DepartmentName', 'AccountName', 'SubscriptionName', 'MeterCategory',
-                'MeterSubCategory', 'MeterName', 'ResourceGroup']
-cost_column = ['ExtendedCost']
+base_columns = ['departmentName', 'accountName', 'subscriptionName', 'meterCategory',
+                'meterSubCategory', 'meterName', 'meterRegion', 'resourceGroup']
+cost_column = ['cost']
 
 
 def convert_json_df(data):
@@ -52,29 +52,38 @@ class AzureEABillingCollector(object):
         self._token = token
         self._timeout = timeout
 
-    def _get_azure_data(self, month=None):
+    def _get_azure_data(self, billing_period=None):
         """
         Request the billing data from the Azure API and return a dict with the data
 
         :param month: string for the given month or None for the current month
         :return: JSON document of usage and billing information for the given month
         """
-        if month is None:
+        if billing_period is None:
             now = datetime.datetime.now()
-            month = now.strftime("%Y-%m")
+            billing_period = now.strftime("%Y-%m-%d")
 
-        headers = {"Authorization": "Bearer {}".format(self._token)}
-        url = "https://ea.azure.com/rest/{0}/usage-report?month={1}&type=detail&fmt=Json".format(self._enrollment,
-                                                                                                 month)
+        headers = {"Authorization": "Bearer {0}".format(self._token)}
+        url = "https://consumption.azure.com/v3/enrollments/{0}/usagedetailsbycustomdate?startTime={1}&endTime={1}".format(self._enrollment, billing_period)
+        azure_data = []
+        while True:
+            print("About to query Azure data from {0}".format(url))
+            rsp = requests.get(url, headers=headers, timeout=self._timeout)
+            rsp.raise_for_status()
 
-        rsp = requests.get(url, headers=headers, timeout=self._timeout)
-        rsp.raise_for_status()
+            if rsp.text.startswith('"Usage Data Extract"'):
+                # special treatement for no usage details. Azure API doesn't return a JSON document in that case...
+                return dict()
 
-        if rsp.text.startswith('"Usage Data Extract"'):
-            # special treatement for no usage details. Azure API doesn't return a JSON document in that case...
-            return dict()
+            azure_data.extend(rsp.json()['data'])
+            if 'nextLink' in rsp.json().keys() and rsp.json()['nextLink'] != None:
+                url = rsp.json()['nextLink']
+            else:
+                break
 
-        return rsp.json()
+        print("Azure data fetched: {0} usage entries".format(len(azure_data)))
+
+        return azure_data
 
     def _create_counter(self):
         """
@@ -106,6 +115,6 @@ class AzureEABillingCollector(object):
         groups = df.groupby(base_columns).sum()
 
         for labels, value in groups.iterrows():
-            c.add_metric(labels, int(round(value.ExtendedCost)))
+            c.add_metric(labels, int(round(value.cost)))
 
         yield c
