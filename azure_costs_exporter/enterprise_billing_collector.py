@@ -51,9 +51,6 @@ class AzureEABillingCollector(object):
         self._enrollment = enrollment
         self._token = token
         self._timeout = timeout
-        self._etag = None
-        self._last_data = None
-        print("New collector instantiated...")
 
     def _get_azure_data(self, billing_period=None):
         """
@@ -67,23 +64,12 @@ class AzureEABillingCollector(object):
             billing_period = now.strftime("%Y-%m-%d")
 
         headers = {"Authorization": "Bearer {0}".format(self._token)}
-        if self._etag != None:
-            print("Using previous ETag")
-            headers['ETag'] = self._etag
-
         url = "https://consumption.azure.com/v3/enrollments/{0}/usagedetailsbycustomdate?startTime={1}&endTime={1}".format(self._enrollment, billing_period)
         azure_data = []
         while True:
             print("About to query Azure data from {0}".format(url))
             rsp = requests.get(url, headers=headers, timeout=self._timeout)
             rsp.raise_for_status()
-
-            if rsp.status_code == requests.codes.not_modified:
-                print("Data not modified, returning cache")
-                return self._last_data
-            else:
-                print("Data modified, updating ETag and computing")
-                self._etag=rsp.headers['ETag']
 
             if rsp.text.startswith('"Usage Data Extract"'):
                 # special treatement for no usage details. Azure API doesn't return a JSON document in that case...
@@ -96,7 +82,7 @@ class AzureEABillingCollector(object):
                 break
 
         print("Azure data fetched: {0} usage entries".format(len(azure_data)))
-        self._last_data = azure_data
+
         return azure_data
 
     def _create_counter(self):
